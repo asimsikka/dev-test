@@ -1,68 +1,88 @@
-# Nomey Web App
-This is the official repository for the Nomey web app, built on the T3 Stack with custom extensions.
+# SSE Service - Backend Integration Guide
 
-## Tech Stack
+## Quick Integration for Backend Modules
 
-- [Next.js](https://nextjs.org) - App Framework
-- [NextAuth.js](https://next-auth.js.org) - Authentication
-- [Prisma](https://prisma.io) - Database ORM
-- [Tailwind CSS](https://tailwindcss.com) - CSS Utility Framework
-- [tRPC](https://trpc.io) - API Framework
-- [Mux]() - Video handling (upload / storage / etc.)
-- [tolgee](https://tolgee.io/) - Translation Management
-- [Meilisearch](https://www.meilisearch.com/) - Full-text search
-- [Upstash](https://upstash.com/) Next compatible redis
-- [Qstash](https://upstash.com/docs/qstash) Next compatible queue handling 
-- [Vitest](https://vitest.dev/) - Testing Framework
+### 1. Send notification to a specific user
 
-## Testing
+\`\`\`typescript
+import { SSEService } from '@/features/sse';
 
-This project uses [Vitest](https://vitest.dev/) to run both client-side (browser) and server-side (Node.js) tests.
+// In your webhook handler, job processor, etc.
+export async function notifyUser(userId: string, message: string) {
+const sseService = SSEService.getInstance();
 
-### Project Structure
+sseService.sendToUser(userId, {
+event: 'notification',
+data: {
+message,
+timestamp: new Date().toISOString()
+}
+});
+}
+\`\`\`
 
-Tests are split into two environments:
+### 2. Broadcast to all connected clients
 
-- **Browser (jsdom)** — for React/browser environment tests.
-- **Node.js** — for backend and server-only logic.
+\`\`\`typescript
+export async function broadcastSystemMessage(message: string) {
+const sseService = SSEService.getInstance();
 
-### File Naming Conventions
+sseService.broadcast({
+event: 'system-announcement',
+data: { message, type: 'info' }
+});
+}
+\`\`\`
 
-- Node-specific tests: `*.node.test.ts`
-- Browser tests: any other `*.test.ts`, `*.test.tsx`, etc.
+#### Background Job
 
-### Running Tests
+\`\`\`typescript
+// lib/jobs/process-order.ts
+import { SSEService } from '@/features/sse';
 
-Run **all tests**:
+export async function processOrder(orderId: string, userId: string) {
+const sseService = SSEService.getInstance();
 
-```bash
-npm run test
-```
+// Notify start
+sseService.sendToUser(userId, {
+event: 'order-processing',
+data: { orderId, status: 'started' }
+});
 
-## Local Development
+try {
+// Process order...
+await processOrderLogic(orderId);
 
-### Clone and Install
-```bash
-git clone git@github.com:nomeyy/nomey-next.git
-cd nomey-next
-npm install
-```
+    // Notify completion
+    sseService.sendToUser(userId, {
+      event: 'order-completed',
+      data: { orderId, status: 'completed' }
+    });
 
-### Run Containers
+} catch (error) {
+// Notify error
+sseService.sendToUser(userId, {
+event: 'order-error',
+data: { orderId, error: error.message }
+});
+}
+}
+\`\`\`
 
-You'll need to have `docker` installed locally. We advise running `./scripts/start-services.sh` to safely start your environment, but a normal docker workflow will also work.
+## Available Methods
 
-### Run Next
+- `sendToClient(clientId, event)` - Send to specific client connection
+- `sendToUser(userId, event)` - Send to all connections for a user
+- `broadcast(event, excludeClientId?)` - Send to all connected clients
+- `getActiveClients()` - Get list of active client IDs
+- `getClientsByUser(userId)` - Get client IDs for specific user
 
-```bash
-npm run dev
-```
+## Event Format
 
-> ⚠️ **Warning:** The T3 stack hard-enforces environment variables to provide type-safety. The project will not build without all environment variables in place. Contact a dev to get their variables to quickly get yourself up and running.
-
-## Learn More
-
- - [Nomey Documentation (WIP)](https://nomey.mintlify.app/)
- - [Next Documentation](https://nextjs.org/docs)
- - [T3 Stack Documentation](https://create.t3.gg/en/usage/first-steps)
- - [Mux Documentation](https://www.mux.com/docs)
+\`\`\`typescript
+{
+event: string, // Event name (e.g., 'notification', 'update')
+data: any, // Your payload data
+id?: string, // Optional event ID
+retry?: number // Optional retry interval
+}
